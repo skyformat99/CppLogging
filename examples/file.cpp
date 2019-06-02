@@ -11,12 +11,10 @@
 
 void ConfigureLogger()
 {
-    // Create default logging sink processor
-    auto sink = std::make_shared<CppLogging::Processor>();
-    // Add binary layout
-    sink->layouts().push_back(std::make_shared<CppLogging::BinaryLayout>());
+    // Create default logging sink processor with a binary layout
+    auto sink = std::make_shared<CppLogging::Processor>(std::make_shared<CppLogging::BinaryLayout>());
     // Add file appender
-    sink->appenders().push_back(std::make_shared<CppLogging::FileAppender>(CppCommon::File("file.bin.log")));
+    sink->appenders().push_back(std::make_shared<CppLogging::FileAppender>("file.bin.log"));
 
     // Configure example logger
     CppLogging::Config::ConfigLogger("example", sink);
@@ -31,11 +29,11 @@ int main(int argc, char** argv)
     CppLogging::Logger logger("example");
 
     // Log some messages with different level
-    logger.Debug("Debug message");
-    logger.Info("Info message");
-    logger.Warn("Warning message");
-    logger.Error("Error message");
-    logger.Fatal("Fatal message");
+    logger.Debug("Debug message {}", 1);
+    logger.Info("Info message {}", 2);
+    logger.Warn("Warning message {}", 3);
+    logger.Error("Error message {}", 4);
+    logger.Fatal("Fatal message {}", 5);
 
     return 0;
 }

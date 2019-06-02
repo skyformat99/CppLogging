@@ -15,6 +15,7 @@
 #include "threads/thread.h"
 #include "time/timestamp.h"
 
+#include <cassert>
 #include <string>
 #include <vector>
 #include <utility>
@@ -63,9 +64,36 @@ public:
     Record& operator=(const Record&) = default;
     Record& operator=(Record&&) = default;
 
-    //! Format message of the logging record
+    //! Is the record contains stored format message and its arguments
+    bool IsFormatStored() const noexcept { return !buffer.empty(); }
+
+    //! Format message and its arguments
     template <typename... Args>
-    void Format(const char* pattern, const Args&... args);
+    Record& Format(std::string_view pattern, const Args&... args);
+
+    //! Store format message and its arguments
+    template <typename... Args>
+    Record& StoreFormat(std::string_view pattern, const Args&... args);
+
+    //! Store custom format message and its arguments
+    template <typename Arg>
+    Record& StoreCustom(const Arg& arg);
+    template <typename... Args>
+    Record& StoreCustomFormat(std::string_view pattern, const Args&... args);
+
+    //! Store list format message
+    size_t StoreListBegin();
+    template <typename... Args>
+    Record& StoreList(const Args&... args);
+    template <typename... Args>
+    Record& StoreListFormat(std::string_view pattern, const Args&... args);
+    Record& StoreListEnd(size_t begin);
+
+    //! Restore format message and its arguments
+    std::string RestoreFormat() const { return RestoreFormat(message, buffer, 0, buffer.size()); }
+
+    //! Restore format of the custom data type
+    static std::string RestoreFormat(std::string_view pattern, const std::vector<uint8_t> buffer, size_t offset, size_t size);
 
     //! Clear logging record
     void Clear();

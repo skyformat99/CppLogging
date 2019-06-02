@@ -10,6 +10,7 @@
 #include "logging/layouts/text_layout.h"
 #include "logging/version.h"
 
+#include "errors/fatal.h"
 #include "filesystem/file.h"
 #include "system/stream.h"
 
@@ -97,9 +98,8 @@ int main(int argc, char** argv)
 {
     auto parser = optparse::OptionParser().version(version);
 
-    parser.add_option("-h", "--help").help("Show help");
-    parser.add_option("-i", "--input").help("Input file name");
-    parser.add_option("-o", "--output").help("Output file name");
+    parser.add_option("-i", "--input").dest("input").help("Input file name");
+    parser.add_option("-o", "--output").dest("output").help("Output file name");
 
     optparse::Values options = parser.parse_args(argc, argv);
 
@@ -110,29 +110,37 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    // Open the input file or stdin
-    std::unique_ptr<Reader> input(new StdInput());
-    if (options.is_set("input"))
+    try
     {
-        File* file = new File(Path(options.get("input")));
-        file->Open(true, false);
-        input.reset(file);
-    }
+        // Open the input file or stdin
+        std::unique_ptr<Reader> input(new StdInput());
+        if (options.is_set("input"))
+        {
+            File* file = new File(Path(options.get("input")));
+            file->Open(true, false);
+            input.reset(file);
+        }
 
-    // Open the output file or stdout
-    std::unique_ptr<Writer> output(new StdOutput());
-    if (options.is_set("output"))
+        // Open the output file or stdout
+        std::unique_ptr<Writer> output(new StdOutput());
+        if (options.is_set("output"))
+        {
+            File* file = new File(Path(options.get("output")));
+            file->Open(false, true);
+            output.reset(file);
+        }
+
+        // Process all logging record
+        Record record;
+        while (InputRecord(*input, record))
+            if (!OutputRecord(*output, record))
+                break;
+
+        return 0;
+    }
+    catch (const std::exception& ex)
     {
-        File* file = new File(Path(options.get("output")));
-        file->Open(false, true);
-        output.reset(file);
+        std::cerr << ex.what() << std::endl;
+        return -1;
     }
-
-    // Process all logging record
-    Record record;
-    while (InputRecord(*input, record))
-        if (!OutputRecord(*output, record))
-            break;
-
-    return 0;
 }

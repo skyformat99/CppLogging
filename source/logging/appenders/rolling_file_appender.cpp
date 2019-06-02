@@ -21,6 +21,7 @@
 #include "minizip/iowin32.h"
 #endif
 
+#include <atomic>
 #include <cassert>
 
 namespace CppLogging {
@@ -32,13 +33,48 @@ class RollingFileAppender::Impl
 public:
     static const std::string ARCHIVE_EXTENSION;
 
-    Impl(RollingFileAppender& appender, const CppCommon::Path& path, bool archive, bool truncate, bool auto_flush)
-        : _appender(appender), _path(path), _archive(archive), _truncate(truncate), _auto_flush(auto_flush),
-          _retry(0), _file(), _written(0)
+    Impl(RollingFileAppender& appender, const CppCommon::Path& path, bool archive, bool truncate, bool auto_flush, bool auto_start)
+        : _appender(appender), _path(path), _archive(archive), _truncate(truncate), _auto_flush(auto_flush)
     {
+        // Start the rolling file appender
+        if (auto_start)
+            Start();
     }
 
-    virtual ~Impl() = default;
+    virtual ~Impl()
+    {
+        // Stop the rolling file appender
+        if (IsStarted())
+            Stop();
+    }
+
+    virtual bool IsStarted() const noexcept { return _started; }
+
+    virtual bool Start()
+    {
+        if (IsStarted())
+            return false;
+
+        if (_archive)
+            ArchivationStart();
+
+        _started = true;
+        return true;
+    }
+
+    virtual bool Stop()
+    {
+        if (!IsStarted())
+            return false;
+
+        CloseFile();
+
+        if (_archive)
+            ArchivationStop();
+
+        _started = false;
+        return true;
+    }
 
     virtual void AppendRecord(Record& record) = 0;
     virtual void Flush() = 0;
@@ -50,23 +86,29 @@ protected:
     bool _truncate;
     bool _auto_flush;
 
-    CppCommon::Timestamp _retry;
+    std::atomic<bool> _started{false};
+    CppCommon::Timestamp _retry{0};
     CppCommon::File _file;
-    size_t _written;
+    size_t _written{0};
 
-    void CloseFile()
+    bool CloseFile()
     {
-        // Check if the file is already opened for writing
-        if (_file.IsFileWriteOpened())
+        try
         {
-            // Flush & close the file
-            _file.Flush();
-            _file.Close();
+            // Check if the file is already opened for writing
+            if (_file.IsFileWriteOpened())
+            {
+                // Flush & close the file
+                _file.Flush();
+                _file.Close();
 
-            // Archive the file
-            if (_archive)
-                ArchiveQueue(_file);
+                // Archive the file
+                if (_archive)
+                    ArchiveQueue(_file);
+            }
+            return true;
         }
+        catch (const CppCommon::FileSystemException&) { return false; }
     }
 
     std::thread _archive_thread;
@@ -145,7 +187,7 @@ protected:
     void ArchivationStart()
     {
         // Start archivation thread
-        _archive_thread = CppCommon::Thread::Start([this]() { Archivation(); });
+        _archive_thread = CppCommon::Thread::Start([this]() { ArchivationThread(); });
     }
 
     void ArchivationStop()
@@ -155,7 +197,7 @@ protected:
         _archive_thread.join();
     }
 
-    void Archivation()
+    void ArchivationThread()
     {
         // Call initialize archivation thread handler
         _appender.onArchiveThreadInitialize();
@@ -165,6 +207,10 @@ protected:
             CppCommon::Path path;
             while (_archive_queue.Dequeue(path))
                 ArchiveFile(path, "");
+        }
+        catch (const std::exception& ex)
+        {
+            fatality(ex);
         }
         catch (...)
         {
@@ -215,13 +261,10 @@ class TimePolicyImpl : public RollingFileAppender::Impl
     };
 
 public:
-    TimePolicyImpl(RollingFileAppender& appender, const CppCommon::Path& path, TimeRollingPolicy policy, const std::string& pattern, bool archive, bool truncate, bool auto_flush)
-        : RollingFileAppender::Impl(appender, path, archive, truncate, auto_flush),
-          _policy(policy), _pattern(pattern), _rollstamp(0), _rolldelay(0)
+    TimePolicyImpl(RollingFileAppender& appender, const CppCommon::Path& path, TimeRollingPolicy policy, const std::string& pattern, bool archive, bool truncate, bool auto_flush, bool auto_start)
+        : RollingFileAppender::Impl(appender, path, archive, truncate, auto_flush, auto_start),
+          _policy(policy), _pattern(pattern)
     {
-        if (_archive)
-            ArchivationStart();
-
         std::string placeholder;
         std::string subpattern;
 
@@ -285,16 +328,7 @@ public:
         }
     }
 
-    virtual ~TimePolicyImpl()
-    {
-        try
-        {
-            CloseFile();
-            if (_archive)
-                ArchivationStop();
-        }
-        catch (CppCommon::FileSystemException&) {}
-    }
+    virtual ~TimePolicyImpl() = default;
 
     TimeRollingPolicy policy() const
     {
@@ -321,14 +355,14 @@ public:
                 if (_auto_flush)
                     _file.Flush();
             }
-            catch (CppCommon::FileSystemException&)
+            catch (const CppCommon::FileSystemException&)
             {
                 // Try to close the opened file in case of any IO error
                 try
                 {
                     _file.Close();
                 }
-                catch (CppCommon::FileSystemException&) {}
+                catch (const CppCommon::FileSystemException&) {}
             }
         }
     }
@@ -342,14 +376,14 @@ public:
             {
                 _file.Flush();
             }
-            catch (CppCommon::FileSystemException&)
+            catch (const CppCommon::FileSystemException&)
             {
                 // Try to close the opened file in case of any IO error
                 try
                 {
                     _file.Close();
                 }
-                catch (CppCommon::FileSystemException&) {}
+                catch (const CppCommon::FileSystemException&) {}
             }
         }
     }
@@ -358,8 +392,9 @@ private:
     TimeRollingPolicy _policy;
     std::string _pattern;
     std::vector<Placeholder> _placeholders;
-    CppCommon::Timestamp _rollstamp;
-    CppCommon::Timespan _rolldelay;
+    CppCommon::Timestamp _rollstamp{0};
+    CppCommon::Timespan _rolldelay{0};
+    bool _first{true};
 
     bool PrepareFile(uint64_t timestamp)
     {
@@ -385,26 +420,56 @@ private:
             if ((CppCommon::Timestamp::utc() - _retry).milliseconds() < 100)
                 return false;
 
-            // 3. If the file is opened for reading close it
+            uint64_t rollstamp = timestamp;
+
+            // 3. Truncate rolling timestamp according to the time rolling policy
+            switch (_policy)
+            {
+                case TimeRollingPolicy::SECOND:
+                    rollstamp = (rollstamp / 1000000000ull) * 1000000000ull;
+                    break;
+                case TimeRollingPolicy::MINUTE:
+                    rollstamp = (rollstamp / (60 * 1000000000ull)) * (60 * 1000000000ull);
+                    break;
+                case TimeRollingPolicy::HOUR:
+                    rollstamp = (rollstamp / (60 * 60 * 1000000000ull)) * (60 * 60 * 1000000000ull);
+                    break;
+                default:
+                    rollstamp = (rollstamp / (24 * 60 * 60 * 1000000000ull)) * (24 * 60 * 60 * 1000000000ull);
+                    break;
+            }
+
+            // 4. Reset the flag for the first rolling file
+            if (_first)
+                _first = false;
+            else
+                timestamp = rollstamp;
+
+            // 5. If the file is opened for reading close it
             if (_file.IsFileReadOpened())
                 _file.Close();
 
-            // 4. Open the file for writing
+            // 6. Prepare the actual rolling file path
             _file = PrepareFilePath(CppCommon::Timestamp(timestamp));
+
+            // 7. Create the parent directory tree
+            CppCommon::Directory::CreateTree(_file.parent());
+
+            // 8. Open or create the rolling file
             _file.OpenOrCreate(false, true, _truncate);
 
-            // 5. Reset the written bytes counter
+            // 9. Reset the written bytes counter
             _written = 0;
 
-            // 6. Reset the retry timestamp
+            // 10. Reset the retry timestamp
             _retry = 0;
 
-            // 7. Reset the rolling timestamp with a second persicion
-            _rollstamp = (timestamp / 1000000000) * 1000000000;
+            // 11. Reset the rolling timestamp
+            _rollstamp = rollstamp;
 
             return true;
         }
-        catch (CppCommon::FileSystemException&)
+        catch (const CppCommon::FileSystemException&)
         {
             // In case of any IO error reset the retry timestamp and return false!
             _retry = CppCommon::Timestamp::utc();
@@ -552,7 +617,7 @@ private:
         std::string filename;
 
         // Iterate through all placeholders
-        for (auto& placeholder : _placeholders)
+        for (const auto& placeholder : _placeholders)
         {
             switch (placeholder.type)
             {
@@ -874,8 +939,8 @@ private:
 class SizePolicyImpl : public RollingFileAppender::Impl
 {
 public:
-    SizePolicyImpl(RollingFileAppender& appender, const CppCommon::Path& path, const std::string& filename, const std::string& extension, size_t size, size_t backups, bool archive, bool truncate, bool auto_flush)
-        : RollingFileAppender::Impl(appender, path, archive, truncate, auto_flush),
+    SizePolicyImpl(RollingFileAppender& appender, const CppCommon::Path& path, const std::string& filename, const std::string& extension, size_t size, size_t backups, bool archive, bool truncate, bool auto_flush, bool auto_start)
+        : RollingFileAppender::Impl(appender, path, archive, truncate, auto_flush, auto_start),
           _filename(filename), _extension(extension), _size(size), _backups(backups)
     {
         assert((size > 0) && "Size limit should be greater than zero!");
@@ -885,21 +950,9 @@ public:
         assert((backups > 0) && "Backups count should be greater than zero!");
         if (backups <= 0)
             throwex CppCommon::ArgumentException("Backups count should be greater than zero!");
-
-        if (_archive)
-            ArchivationStart();
     }
 
-    virtual ~SizePolicyImpl()
-    {
-        try
-        {
-            CloseFile();
-            if (_archive)
-                ArchivationStop();
-        }
-        catch (CppCommon::FileSystemException&) {}
-    }
+    virtual ~SizePolicyImpl() = default;
 
     void AppendRecord(Record& record) override
     {
@@ -921,14 +974,14 @@ public:
                 if (_auto_flush)
                     _file.Flush();
             }
-            catch (CppCommon::FileSystemException&)
+            catch (const CppCommon::FileSystemException&)
             {
                 // Try to close the opened file in case of any IO error
                 try
                 {
                     _file.Close();
                 }
-                catch (CppCommon::FileSystemException&) {}
+                catch (const CppCommon::FileSystemException&) {}
             }
         }
     }
@@ -942,14 +995,14 @@ public:
             {
                 _file.Flush();
             }
-            catch (CppCommon::FileSystemException&)
+            catch (const CppCommon::FileSystemException&)
             {
                 // Try to close the opened file in case of any IO error
                 try
                 {
                     _file.Close();
                 }
-                catch (CppCommon::FileSystemException&) {}
+                catch (const CppCommon::FileSystemException&) {}
             }
         }
     }
@@ -990,19 +1043,24 @@ private:
             if (_file.IsFileReadOpened())
                 _file.Close();
 
-            // 4. Open the file for writing
+            // 4. Prepare the actual rolling file path
             _file = PrepareFilePath();
+
+            // 5. Create the parent directory tree
+            CppCommon::Directory::CreateTree(_file.parent());
+
+            // 6. Open or create the rolling file
             _file.OpenOrCreate(false, true, _truncate);
 
-            // 5. Reset the written bytes counter
+            // 7. Reset the written bytes counter
             _written = 0;
 
-            // 6. Reset the retry timestamp
+            // 8. Reset the retry timestamp
             _retry = 0;
 
             return true;
         }
-        catch (CppCommon::FileSystemException&)
+        catch (const CppCommon::FileSystemException&)
         {
             // In case of any IO error reset the retry timestamp and return false!
             _retry = CppCommon::Timestamp::utc();
@@ -1070,17 +1128,13 @@ private:
 
 //! @endcond
 
-RollingFileAppender::RollingFileAppender(const CppCommon::Path& path, TimeRollingPolicy policy, const std::string& pattern, bool archive, bool truncate, bool auto_flush)
-    : _pimpl(std::make_unique<TimePolicyImpl>(*this, path, policy, pattern, archive, truncate, auto_flush))
+RollingFileAppender::RollingFileAppender(const CppCommon::Path& path, TimeRollingPolicy policy, const std::string& pattern, bool archive, bool truncate, bool auto_flush, bool auto_start)
+    : _pimpl(std::make_unique<TimePolicyImpl>(*this, path, policy, pattern, archive, truncate, auto_flush, auto_start))
 {
 }
 
-RollingFileAppender::RollingFileAppender(const CppCommon::Path& path, const std::string& filename, const std::string& extension, size_t size, size_t backups, bool archive, bool truncate, bool auto_flush)
-    : _pimpl(std::make_unique<SizePolicyImpl>(*this, path, filename, extension, size, backups, archive, truncate, auto_flush))
-{
-}
-
-RollingFileAppender::RollingFileAppender(RollingFileAppender&& appender) noexcept : _pimpl(std::move(appender._pimpl))
+RollingFileAppender::RollingFileAppender(const CppCommon::Path& path, const std::string& filename, const std::string& extension, size_t size, size_t backups, bool archive, bool truncate, bool auto_flush, bool auto_start)
+    : _pimpl(std::make_unique<SizePolicyImpl>(*this, path, filename, extension, size, backups, archive, truncate, auto_flush, auto_start))
 {
 }
 
@@ -1088,10 +1142,19 @@ RollingFileAppender::~RollingFileAppender()
 {
 }
 
-RollingFileAppender& RollingFileAppender::operator=(RollingFileAppender&& appender) noexcept
+bool RollingFileAppender::IsStarted() const noexcept
 {
-    _pimpl = std::move(appender._pimpl);
-    return *this;
+    return _pimpl->IsStarted();
+}
+
+bool RollingFileAppender::Start()
+{
+    return _pimpl->Start();
+}
+
+bool RollingFileAppender::Stop()
+{
+    return _pimpl->Stop();
 }
 
 void RollingFileAppender::AppendRecord(Record& record)

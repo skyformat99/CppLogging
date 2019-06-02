@@ -28,19 +28,20 @@ namespace CppLogging {
 class BufferedProcessor : public Processor
 {
 public:
-    //! Initialize buffered processor with the given limit and capacity
+    //! Initialize buffered processor with a given layout interface, limit and capacity
     /*!
+         \param layout - Logging layout interface
          \param limit - Buffer limit in logging records (default is 65536)
-         \param capacity - Buffer initial capacity in logging records (default is 4096)
+         \param capacity - Buffer initial capacity in logging records (default is 8192)
     */
-    explicit BufferedProcessor(size_t limit = 65536, size_t capacity = 4096) : _limit(limit)
+    explicit BufferedProcessor(const std::shared_ptr<Layout>& layout, size_t limit = 65536, size_t capacity = 8192) : Processor(layout), _limit(limit)
     { _buffer.reserve(capacity); }
     BufferedProcessor(const BufferedProcessor&) = delete;
-    BufferedProcessor(BufferedProcessor&&) noexcept = default;
+    BufferedProcessor(BufferedProcessor&&) = delete;
     virtual ~BufferedProcessor() = default;
 
     BufferedProcessor& operator=(const BufferedProcessor&) = delete;
-    BufferedProcessor& operator=(BufferedProcessor&&) noexcept = default;
+    BufferedProcessor& operator=(BufferedProcessor&&) = delete;
 
     // Implementation of Processor
     bool ProcessRecord(Record& record) override;

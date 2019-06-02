@@ -14,9 +14,9 @@ BENCHMARK("BinaryLayout")
     static BinaryLayout layout;
     static Record record;
 
+    record.Clear();
     record.logger = "Test logger";
     record.message = "Test message";
-    record.buffer.resize(1024, 123);
 
     layout.LayoutRecord(record);
     context.metrics().AddBytes(record.raw.size());
@@ -27,9 +27,9 @@ BENCHMARK("TextLayout")
     static TextLayout layout;
     static Record record;
 
+    record.Clear();
     record.logger = "Test logger";
     record.message = "Test message";
-    record.buffer.resize(1024, 123);
 
     layout.LayoutRecord(record);
     context.metrics().AddBytes(record.raw.size());

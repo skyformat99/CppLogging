@@ -46,7 +46,7 @@ public:
          \param args - Format arguments
     */
     template <typename... Args>
-    void Debug(const char* debug, const Args&... args);
+    void Debug(std::string_view debug, const Args&... args);
 
     //! Log information message with format arguments
     /*!
@@ -54,7 +54,7 @@ public:
          \param args - Format arguments
     */
     template <typename... Args>
-    void Info(const char* info, const Args&... args);
+    void Info(std::string_view info, const Args&... args);
 
     //! Log warning message with format arguments
     /*!
@@ -62,7 +62,7 @@ public:
          \param args - Format arguments
     */
     template <typename... Args>
-    void Warn(const char* warn, const Args&... args);
+    void Warn(std::string_view warn, const Args&... args);
 
     //! Log error message with format arguments
     /*!
@@ -70,7 +70,7 @@ public:
          \param args - Format arguments
     */
     template <typename... Args>
-    void Error(const char* error, const Args&... args);
+    void Error(std::string_view error, const Args&... args);
 
     //! Log fatal message with format arguments
     /*!
@@ -78,7 +78,7 @@ public:
          \param args - Format arguments
     */
     template <typename... Args>
-    void Fatal(const char* fatal, const Args&... args);
+    void Fatal(std::string_view fatal, const Args&... args);
 
     //! Flush the current logger
     void Flush();
@@ -100,11 +100,12 @@ private:
     //! Log the given message with a given level and format arguments list
     /*!
          \param level - Logging level
+         \param format - Format flag
          \param message - Logging message
          \param args - Format arguments list
     */
     template <typename... Args>
-    void Log(Level level, const char* message, const Args&... args);
+    void Log(Level level, bool format, std::string_view message, const Args&... args);
 };
 
 } // namespace CppLogging

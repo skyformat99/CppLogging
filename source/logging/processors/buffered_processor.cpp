@@ -1,6 +1,6 @@
 /*!
     \file buffered_processor.cpp
-    \brief Buffered logging processor definition
+    \brief Buffered logging processor implementation
     \author Ivan Shynkarenka
     \date 28.07.2016
     \copyright MIT License
@@ -12,6 +12,10 @@ namespace CppLogging {
 
 bool BufferedProcessor::ProcessRecord(Record& record)
 {
+    // Check if the logging processor started
+    if (!IsStarted())
+        return true;
+
     // Process all buffered logging records if the buffer limit is reached
     if ((_buffer.size() + 1) > _limit)
         ProcessBufferedRecords();
@@ -35,6 +39,10 @@ void BufferedProcessor::ProcessBufferedRecords()
 
 void BufferedProcessor::Flush()
 {
+    // Check if the logging processor started
+    if (!IsStarted())
+        return;
+
     // Process all buffered logging records
     ProcessBufferedRecords();
 

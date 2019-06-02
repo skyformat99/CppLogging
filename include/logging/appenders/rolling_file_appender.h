@@ -59,7 +59,7 @@ public:
          using the following placeholders:
          - {UtcDateTime} / {LocalDateTime} - converted to the UTC/local date & time (e.g. "1997-07-16T192030Z" / "1997-07-16T192030+0100")
          - {UtcDate} / {LocalDate} - converted to the UTC/local date (e.g. "1997-07-16")
-         - {Time} / {LocalTime} - converted to the UTC/local time (e.g. "192030Z" / "192030+0100")
+         - {UtcTime} / {LocalTime} - converted to the UTC/local time (e.g. "192030Z" / "192030+0100")
          - {UtcYear} / {LocalYear} - converted to the UTC/local four-digits year (e.g. "1997")
          - {UtcMonth} / {LocalMonth} - converted to the UTC/local two-digits month (e.g. "07")
          - {UtcDay} / {LocalDay} - converted to the UTC/local two-digits day (e.g. "16")
@@ -74,8 +74,9 @@ public:
          \param archive - Archivation flag (default is false)
          \param truncate - Truncate flag (default is false)
          \param auto_flush - Auto-flush flag (default is false)
+         \param auto_start - Auto-start flag (default is true)
     */
-    explicit RollingFileAppender(const CppCommon::Path& path, TimeRollingPolicy policy = TimeRollingPolicy::DAY, const std::string& pattern = "{UtcDateTime}.log", bool archive = false, bool truncate = false, bool auto_flush = false);
+    explicit RollingFileAppender(const CppCommon::Path& path, TimeRollingPolicy policy = TimeRollingPolicy::DAY, const std::string& pattern = "{UtcDateTime}.log", bool archive = false, bool truncate = false, bool auto_flush = false, bool auto_start = true);
     //! Initialize the rolling file appender with a size-based policy
     /*!
          Size-based policy for 5 backups works in a following way:
@@ -95,16 +96,20 @@ public:
          \param archive - Archivation flag (default is false)
          \param truncate - Truncate flag (default is false)
          \param auto_flush - Auto-flush flag (default is false)
+         \param auto_start - Auto-start flag (default is true)
     */
-    explicit RollingFileAppender(const CppCommon::Path& path, const std::string& filename, const std::string& extension, size_t size = 104857600, size_t backups = 10, bool archive = false, bool truncate = false, bool auto_flush = false);
+    explicit RollingFileAppender(const CppCommon::Path& path, const std::string& filename, const std::string& extension, size_t size = 104857600, size_t backups = 10, bool archive = false, bool truncate = false, bool auto_flush = false, bool auto_start = true);
     RollingFileAppender(const RollingFileAppender&) = delete;
-    RollingFileAppender(RollingFileAppender&& appender) noexcept;
+    RollingFileAppender(RollingFileAppender&& appender) = delete;
     virtual ~RollingFileAppender();
 
     RollingFileAppender& operator=(const RollingFileAppender&) = delete;
-    RollingFileAppender& operator=(RollingFileAppender&& appender) noexcept;
+    RollingFileAppender& operator=(RollingFileAppender&& appender) = delete;
 
     // Implementation of Appender
+    bool IsStarted() const noexcept override;
+    bool Start() override;
+    bool Stop() override;
     void AppendRecord(Record& record) override;
     void Flush() override;
 

@@ -10,9 +10,39 @@
 
 namespace CppLogging {
 
-FileAppender::FileAppender(const CppCommon::File& file, bool truncate, bool auto_flush)
-    : _retry(0), _file(file), _truncate(truncate), _auto_flush(auto_flush)
+FileAppender::FileAppender(const CppCommon::Path& file, bool truncate, bool auto_flush, bool auto_start)
+    : _file(file), _truncate(truncate), _auto_flush(auto_flush)
 {
+    // Start the file appender
+    if (auto_start)
+        Start();
+}
+
+FileAppender::~FileAppender()
+{
+    // Stop the file appender
+    if (IsStarted())
+        Stop();
+}
+
+bool FileAppender::Start()
+{
+    if (IsStarted())
+        return false;
+
+    PrepareFile();
+    _started = true;
+    return true;
+}
+
+bool FileAppender::Stop()
+{
+    if (!IsStarted())
+        return false;
+
+    CloseFile();
+    _started = false;
+    return true;
 }
 
 void FileAppender::AppendRecord(Record& record)
@@ -32,14 +62,10 @@ void FileAppender::AppendRecord(Record& record)
             if (_auto_flush)
                 _file.Flush();
         }
-        catch (CppCommon::FileSystemException&)
+        catch (const CppCommon::FileSystemException&)
         {
             // Try to close the opened file in case of any IO error
-            try
-            {
-                _file.Close();
-            }
-            catch (CppCommon::FileSystemException&) {}
+            CloseFile();
         }
     }
 }
@@ -53,14 +79,10 @@ void FileAppender::Flush()
         {
             _file.Flush();
         }
-        catch (CppCommon::FileSystemException&)
+        catch (const CppCommon::FileSystemException&)
         {
             // Try to close the opened file in case of any IO error
-            try
-            {
-                _file.Close();
-            }
-            catch (CppCommon::FileSystemException&) {}
+            CloseFile();
         }
     }
 }
@@ -89,12 +111,23 @@ bool FileAppender::PrepareFile()
 
         return true;
     }
-    catch (CppCommon::FileSystemException&)
+    catch (const CppCommon::FileSystemException&)
     {
         // In case of any IO error reset the retry timestamp and return false!
         _retry = CppCommon::Timestamp::utc();
         return false;
     }
+}
+
+bool FileAppender::CloseFile()
+{
+    try
+    {
+        if (_file)
+            _file.Close();
+        return true;
+    }
+    catch (const CppCommon::FileSystemException&) { return false; }
 }
 
 } // namespace CppLogging
